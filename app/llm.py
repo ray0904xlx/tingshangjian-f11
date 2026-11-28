@@ -96,7 +96,7 @@ def openai_compatible_respond(s, text: str) -> dict:
                  "Authorization": f"Bearer {os.getenv('LLM_API_KEY', '')}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        with urllib.request.urlopen(req, timeout=float(os.getenv("LLM_TIMEOUT", "45"))) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "ignore")[:200]
