@@ -110,6 +110,8 @@ class CourtSession:
             out.append(self._say("system", f"AI 回應失敗，請再說一次。（{e}）", "system"))
             return out
 
+        if result["notice"]:
+            out.append(self._say("system", result["notice"], "system"))
         if result["violation"]:
             self.violations += 1
             out.append(self._say("judge", result["violation"], "violation"))
@@ -192,4 +194,5 @@ class CourtSession:
         if not replies and not violation:
             replies = [{"role": "judge", "text": "請原告繼續陳述。"}]
         return {"replies": replies, "stage_done": bool(result.get("stage_done")),
-                "violation": violation, "witness_sworn": bool(result.get("witness_sworn"))}
+                "violation": violation, "witness_sworn": bool(result.get("witness_sworn")),
+                "notice": result.get("notice")}

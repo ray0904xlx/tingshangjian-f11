@@ -11,15 +11,18 @@
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 
 ROLE_DESC = {
-    "judge": "審判長：中立主持程序、提示證物、命證人具結、整理爭點；不評論誰會贏，不給法律建議。",
+    "judge": "審判長：語氣莊重中立、用語像臺灣法庭實務（「原告」「被告」「本院」「記明筆錄」）；"
+             "主持程序、提示證物、命證人具結、追問不清楚的地方；不評論誰會贏，不給法律建議。",
     "clerk": "書記官：必要時協助點名或記錄，發言極少。",
-    "defendant": "被告（對造）：依案件資料中被告的立場答辯與反駁，語氣像一般民眾，不可新增案件資料沒有的事實。",
-    "witness": "證人：只能回答案件資料中證人知道的事；不知道的一律說不清楚；必須先由審判長命其具結後才能作證。",
+    "defendant": "被告（對造，房東）：五十多歲、有點固執、講話口語化，會為自己辯護但不會人身攻擊；"
+                 "只能依案件資料中被告的立場答辯與反駁，不可新增案件資料沒有的事實。",
+    "witness": "證人：原告的大學同學，第一次上法院有點緊張、講話老實；只能回答案件資料中證人知道的事，"
+               "不知道的一律說不清楚；必須先由審判長命其具結後才能作證。",
 }
-
 
 def build_system_prompt(s) -> str:
     st = s.stage
@@ -45,6 +48,9 @@ def build_system_prompt(s) -> str:
    在 violation 用一兩句話說明原因並引導他回到本階段該做的事；否則 violation 為 null。
 6. 證人目前{"已" if s.witness_sworn else "尚未"}具結。若本回合由審判長命證人具結，witness_sworn 設為 true。
 7. 這是教育模擬，不提供真實個案的法律意見，也不預測判決結果。
+8. replies 的順序就是發言順序。通常 1～3 句：審判長回應或主持，需要時再由被告或證人發言。
+9. 原告說得不完整時，由審判長追問或引導，不要直接替原告說出答案（蘇格拉底式引導）。
+10. 只要原告大致做到完成條件就把 stage_done 設為 true，不要過度挑剔。
 
 【案件資料】
 {json.dumps(case_view, ensure_ascii=False)}
@@ -81,19 +87,41 @@ def openai_compatible_respond(s, text: str) -> dict:
     }
     if os.getenv("LLM_JSON_MODE", "1") == "1":
         body["response_format"] = {"type": "json_object"}
+    if os.getenv("LLM_REASONING_EFFORT"):          # 例如 low：思考少一點、回得快一點
+        body["reasoning_effort"] = os.getenv("LLM_REASONING_EFFORT")
     req = urllib.request.Request(
         base + "/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {os.getenv('LLM_API_KEY', '')}"},
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "ignore")[:200]
+        raise RuntimeError(f"LLM 回應 HTTP {e.code}：{detail}") from e
     return _extract_json(data["choices"][0]["message"]["content"])
+
+
+def llm_with_fallback(s, text: str) -> dict:
+    """先問真的 AI；沒設金鑰、連線失敗或格式錯誤時，本回合改用規則模式，Demo 不會卡住。"""
+    from .mock_llm import mock_respond
+    if not os.getenv("LLM_API_KEY"):
+        result = mock_respond(s, text)
+        result["notice"] = "（尚未設定 AI 金鑰，目前使用規則模式）"
+        return result
+    try:
+        return openai_compatible_respond(s, text)
+    except Exception as e:  # noqa: BLE001
+        print(f"[LLM] 失敗，改用規則模式：{e}", flush=True)
+        result = mock_respond(s, text)
+        result["notice"] = "（AI 暫時無法回應，本回合改用規則模式）"
+        return result
 
 
 def get_provider():
     if os.getenv("LLM_PROVIDER", "mock").lower() == "openai":
-        return openai_compatible_respond
+        return llm_with_fallback
     from .mock_llm import mock_respond
     return mock_respond
