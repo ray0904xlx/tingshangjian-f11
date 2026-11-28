@@ -17,6 +17,8 @@ services:
       - key: LLM_JSON_MODE
         value: "0"
       - key: LLM_REASONING_EFFORT
-        value: low
+        value: minimal
+      - key: LLM_TIMEOUT
+        value: "45"
       - key: LLM_API_KEY
         sync: false
