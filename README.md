@@ -30,6 +30,9 @@ uvicorn app.main:app --reload
 
 ## 接上真正的 LLM
 
+> 線上版（Render）已在 `render.yaml` 設定好使用 Google Gemini，只要在 Render 的 Environment 填入 `LLM_API_KEY`
+>（到 Google AI Studio 申請）即可。沒填金鑰或 AI 連線失敗時，系統會自動改用規則模式，不會卡住。
+
 任何支援 OpenAI `/chat/completions` 格式的服務都可以用，只要設定環境變數：
 
 ```bash
