@@ -75,6 +75,17 @@ def _extract_json(content: str) -> dict:
         return json.loads(m.group(0))
 
 
+def _post(base: str, body: dict) -> dict:
+    req = urllib.request.Request(
+        base + "/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {os.getenv('LLM_API_KEY', '')}"},
+    )
+    with urllib.request.urlopen(req, timeout=float(os.getenv("LLM_TIMEOUT", "45"))) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def openai_compatible_respond(s, text: str) -> dict:
     base = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     body = {
@@ -89,18 +100,15 @@ def openai_compatible_respond(s, text: str) -> dict:
         body["response_format"] = {"type": "json_object"}
     if os.getenv("LLM_REASONING_EFFORT"):          # 例如 low：思考少一點、回得快一點
         body["reasoning_effort"] = os.getenv("LLM_REASONING_EFFORT")
-    req = urllib.request.Request(
-        base + "/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {os.getenv('LLM_API_KEY', '')}"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=float(os.getenv("LLM_TIMEOUT", "45"))) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post(base, body)
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "ignore")[:200]
-        raise RuntimeError(f"LLM 回應 HTTP {e.code}：{detail}") from e
+        detail = e.read().decode("utf-8", "ignore")[:300]
+        if e.code == 400 and "reasoning_effort" in body and "hinking" in detail:
+            body.pop("reasoning_effort")          # 這個模型不支援此思考等級，拿掉再試一次
+            data = _post(base, body)
+        else:
+            raise RuntimeError(f"LLM 回應 HTTP {e.code}：{detail}") from e
     return _extract_json(data["choices"][0]["message"]["content"])
 
 
